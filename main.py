@@ -30,6 +30,17 @@ def convert_utc_to_est(utc_time_str):
         logging.error(f"Error converting UTC to EST: {e}")
         return None
 
+def convert_24hr_to_12hr(time_str):
+    try:
+        # Parse the 24-hour time string into a datetime object
+        time_obj = datetime.datetime.strptime(time_str, "%H:%M:%S")
+        
+        # Convert to 12-hour format with AM/PM
+        return time_obj.strftime("%I:%M:%S %p")
+    except Exception as e:
+        logging.error(f"Error converting 24-hour to 12-hour format: {e}")
+        return None
+
 @app.route('/')
 def index():
     return render_template_string('''
@@ -44,6 +55,7 @@ def index():
                     const response = await fetch('/gps-time');
                     const data = await response.json();
                     document.getElementById('est-time').innerText = data['EST Time'];
+                    document.getElementById('est-time-12hr').innerText = data['EST Time 12hr'];
                 }
                 setInterval(updateTime, 1000); // Update every second
                 window.onload = updateTime;
@@ -51,7 +63,8 @@ def index():
         </head>
         <body>
             <h1>Current EST Time</h1>
-            <p id="est-time">Loading...</p>
+            <p>24-hour format: <span id="est-time">Loading...</span></p>
+            <p>12-hour format: <span id="est-time-12hr">Loading...</span></p>
         </body>
         </html>
     ''')
@@ -72,7 +85,8 @@ def get_gps_time():
                         utc_time_str = f"20{utc_date[4:6]}-{utc_date[2:4]}-{utc_date[0:2]}T{utc_time[0:2]}:{utc_time[2:4]}:{utc_time[4:6]}.000Z"
                         est_time = convert_utc_to_est(utc_time_str)
                         if est_time:
-                            return jsonify({"UTC Time": utc_time_str, "EST Time": est_time})
+                            est_time_12hr = convert_24hr_to_12hr(est_time.split(' ')[1])
+                            return jsonify({"UTC Time": utc_time_str, "EST Time": est_time, "EST Time 12hr": est_time_12hr})
                 time.sleep(1)
     except Exception as e:
         logging.error(f"Error retrieving GPS time: {e}")
