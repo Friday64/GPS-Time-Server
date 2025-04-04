@@ -1,27 +1,34 @@
 import time
 import datetime
 import pytz
-import gps3
-from gps3 import gps3
+import serial
 from flask import Flask, jsonify, render_template_string
+import logging
 
 app = Flask(__name__)
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 def convert_utc_to_est(utc_time_str):
-    # Parse the UTC time string into a datetime object
-    utc_time = datetime.datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%S.%fZ")
-    
-    # Define the UTC and EST timezones
-    utc_zone = pytz.utc
-    est_zone = pytz.timezone('US/Eastern')
-    
-    # Localize the UTC time to the UTC timezone
-    utc_time = utc_zone.localize(utc_time)
-    
-    # Convert the UTC time to EST
-    est_time = utc_time.astimezone(est_zone)
-    
-    return est_time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        # Parse the UTC time string into a datetime object
+        utc_time = datetime.datetime.strptime(utc_time_str, "%Y-%m-%dT%H:%M:%S.%fZ")
+        
+        # Define the UTC and EST timezones
+        utc_zone = pytz.utc
+        est_zone = pytz.timezone('US/Eastern')
+        
+        # Localize the UTC time to the UTC timezone
+        utc_time = utc_zone.localize(utc_time)
+        
+        # Convert the UTC time to EST
+        est_time = utc_time.astimezone(est_zone)
+        
+        return est_time.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception as e:
+        logging.error(f"Error converting UTC to EST: {e}")
+        return None
 
 @app.route('/')
 def index():
@@ -51,22 +58,25 @@ def index():
 
 @app.route('/gps-time', methods=['GET'])
 def get_gps_time():
-    # Create a GPS socket
-    gps_socket = gps3.GPSDSocket()
-    data_stream = gps3.DataStream()
-
-    # Connect to the GPSD
-    gps_socket.connect()
-    gps_socket.watch()
-
-    for new_data in gps_socket:
-        if new_data:
-            data_stream.unpack(new_data)
-            utc_time = data_stream.TPV['time']
-            if utc_time:
-                est_time = convert_utc_to_est(utc_time)
-                return jsonify({"UTC Time": utc_time, "EST Time": est_time})
-        time.sleep(1)
+    try:
+        # Open the serial port
+        with serial.Serial('COM6', baudrate=9600, timeout=1) as ser:
+            while True:
+                line = ser.readline().decode('ascii', errors='replace')
+                if line.startswith('$GPRMC'):
+                    # Parse the NMEA sentence to extract UTC time
+                    parts = line.split(',')
+                    if parts[9]:  # Date field
+                        utc_date = parts[9]
+                        utc_time = parts[1]
+                        utc_time_str = f"20{utc_date[4:6]}-{utc_date[2:4]}-{utc_date[0:2]}T{utc_time[0:2]}:{utc_time[2:4]}:{utc_time[4:6]}.000Z"
+                        est_time = convert_utc_to_est(utc_time_str)
+                        if est_time:
+                            return jsonify({"UTC Time": utc_time_str, "EST Time": est_time})
+                time.sleep(1)
+    except Exception as e:
+        logging.error(f"Error retrieving GPS time: {e}")
+        return jsonify({"error": "Failed to retrieve GPS time"}), 500
 
 def main():
     # Run the Flask server on the local network
